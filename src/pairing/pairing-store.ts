@@ -6,6 +6,7 @@ import lockfile from "proper-lockfile";
 import type { ChannelId, ChannelPairingAdapter } from "../channels/plugins/types.js";
 import { getPairingAdapter } from "../channels/plugins/pairing.js";
 import { resolveOAuthDir, resolveStateDir } from "../config/paths.js";
+import { createHookEvent, triggerHook } from "../hooks/hooks.js";
 
 const PAIRING_CODE_LENGTH = 8;
 const PAIRING_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -438,6 +439,17 @@ export async function upsertChannelPairingRequest(params: {
         version: 1,
         requests: [...reqs, next],
       } satisfies PairingStore);
+
+      const hookEvent = createHookEvent("pairing", "requested", `pairing:${params.channel}:${id}`, {
+        channel: params.channel,
+        id,
+        code,
+        meta,
+        createdAt: now,
+        lastSeenAt: now,
+      });
+      void triggerHook(hookEvent);
+
       return { code, created: true };
     },
   );
