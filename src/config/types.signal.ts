@@ -39,6 +39,8 @@ export type SignalAccountConfig = {
   ignoreAttachments?: boolean;
   ignoreStories?: boolean;
   sendReadReceipts?: boolean;
+  /** Notify on untrusted identities (default: true). */
+  notifyUntrustedIdentities?: boolean;
   /** Direct message access policy (default: pairing). */
   dmPolicy?: DmPolicy;
   allowFrom?: Array<string | number>;

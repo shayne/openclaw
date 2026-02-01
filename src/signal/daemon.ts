@@ -11,6 +11,7 @@ export type SignalDaemonOpts = {
   ignoreStories?: boolean;
   sendReadReceipts?: boolean;
   runtime?: RuntimeEnv;
+  onUntrustedIdentity?: (params: { identity: string; line: string }) => void | Promise<void>;
 };
 
 export type SignalDaemonHandle = {
@@ -32,6 +33,19 @@ export function classifySignalCliLogLine(line: string): "log" | "error" | null {
     return "error";
   }
   return "log";
+}
+
+function extractUntrustedIdentity(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (!/\buntrusted identity\b/i.test(trimmed)) {
+    return null;
+  }
+  const match = trimmed.match(/\buntrusted identity\b(?:[^:]*[:\s]+)?(.+)$/i);
+  const identity = match?.[1]?.trim();
+  return identity || trimmed;
 }
 
 function buildDaemonArgs(opts: SignalDaemonOpts): string[] {
@@ -66,25 +80,37 @@ export function spawnSignalDaemon(opts: SignalDaemonOpts): SignalDaemonHandle {
   });
   const log = opts.runtime?.log ?? (() => {});
   const error = opts.runtime?.error ?? (() => {});
+  const onUntrustedIdentity = opts.onUntrustedIdentity;
+
+  const handleLine = (raw: string) => {
+    const line = raw.trim();
+    if (!line) {
+      return;
+    }
+    const untrustedIdentity = onUntrustedIdentity ? extractUntrustedIdentity(line) : null;
+    if (untrustedIdentity && onUntrustedIdentity) {
+      try {
+        void onUntrustedIdentity({ identity: untrustedIdentity, line });
+      } catch (err) {
+        error(`signal-cli untrusted identity handler failed: ${String(err)}`);
+      }
+    }
+    const kind = classifySignalCliLogLine(line);
+    if (kind === "log") {
+      log(`signal-cli: ${line}`);
+    } else if (kind === "error") {
+      error(`signal-cli: ${line}`);
+    }
+  };
 
   child.stdout?.on("data", (data) => {
     for (const line of data.toString().split(/\r?\n/)) {
-      const kind = classifySignalCliLogLine(line);
-      if (kind === "log") {
-        log(`signal-cli: ${line.trim()}`);
-      } else if (kind === "error") {
-        error(`signal-cli: ${line.trim()}`);
-      }
+      handleLine(line);
     }
   });
   child.stderr?.on("data", (data) => {
     for (const line of data.toString().split(/\r?\n/)) {
-      const kind = classifySignalCliLogLine(line);
-      if (kind === "log") {
-        log(`signal-cli: ${line.trim()}`);
-      } else if (kind === "error") {
-        error(`signal-cli: ${line.trim()}`);
-      }
+      handleLine(line);
     }
   });
   child.on("error", (err) => {

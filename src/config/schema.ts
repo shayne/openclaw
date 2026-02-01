@@ -729,6 +729,8 @@ const FIELD_HELP: Record<string, string> = {
     "Debounce window (ms) for batching rapid consecutive messages from the same sender (0 to disable).",
   "channels.signal.dmPolicy":
     'Direct message access control ("pairing" recommended). "open" requires channels.signal.allowFrom=["*"].',
+  "channels.signal.notifyUntrustedIdentities":
+    "Notify when signal-cli reports an untrusted identity (default: true).",
   "channels.imessage.dmPolicy":
     'Direct message access control ("pairing" recommended). "open" requires channels.imessage.allowFrom=["*"].',
   "channels.bluebubbles.dmPolicy":

@@ -5,9 +5,16 @@ import type { RuntimeEnv } from "../runtime.js";
 import { chunkTextWithMode, resolveChunkMode, resolveTextChunkLimit } from "../auto-reply/chunk.js";
 import { DEFAULT_GROUP_HISTORY_LIMIT, type HistoryEntry } from "../auto-reply/reply/history.js";
 import { loadConfig } from "../config/config.js";
+import { resolveMainSessionKey } from "../config/sessions.js";
+import { resolveStorePath, loadSessionStore } from "../config/sessions.js";
+import { deliverOutboundPayloads } from "../infra/outbound/deliver.js";
+import { resolveSessionDeliveryTarget } from "../infra/outbound/targets.js";
+import { enqueueSystemEvent } from "../infra/system-events.js";
 import { waitForTransportReady } from "../infra/transport-ready.js";
 import { saveMediaBuffer } from "../media/store.js";
+import { resolveAgentIdFromSessionKey } from "../routing/session-key.js";
 import { normalizeE164 } from "../utils.js";
+import { isDeliverableMessageChannel } from "../utils/message-channel.js";
 import { resolveSignalAccount } from "./accounts.js";
 import { signalCheck, signalRpcRequest } from "./client.js";
 import { spawnSignalDaemon } from "./daemon.js";
@@ -41,6 +48,7 @@ export type MonitorSignalOpts = {
   account?: string;
   accountId?: string;
   config?: OpenClawConfig;
+  sessionKey?: string;
   baseUrl?: string;
   autoStart?: boolean;
   startupTimeoutMs?: number;
@@ -51,6 +59,7 @@ export type MonitorSignalOpts = {
   ignoreAttachments?: boolean;
   ignoreStories?: boolean;
   sendReadReceipts?: boolean;
+  notifyUntrustedIdentities?: boolean;
   allowFrom?: Array<string | number>;
   groupAllowFrom?: Array<string | number>;
   mediaMaxMb?: number;
@@ -148,6 +157,51 @@ function buildSignalReactionSystemEventText(params: {
   const base = `Signal reaction added: ${params.emojiLabel} by ${params.actorLabel} msg ${params.messageId}`;
   const withTarget = params.targetLabel ? `${base} from ${params.targetLabel}` : base;
   return params.groupLabel ? `${withTarget} in ${params.groupLabel}` : withTarget;
+}
+
+function buildSignalUntrustedIdentityEventText(identity: string) {
+  return [
+    "Signal: untrusted identity detected.",
+    `Identity: ${identity}`,
+    "Tell me to approve it and I'll trust that identity.",
+  ].join("\n");
+}
+
+function resolveSignalUntrustedIdentitySessionKey(params: {
+  cfg: OpenClawConfig;
+  fallbackSessionKey?: string;
+}): string | null {
+  const fallback = params.fallbackSessionKey?.trim();
+  if (fallback) {
+    return fallback;
+  }
+  return resolveMainSessionKey(params.cfg);
+}
+
+function resolveSignalUntrustedIdentityTarget(params: {
+  cfg: OpenClawConfig;
+  sessionKey: string;
+}): { channel: string; to: string; accountId?: string; threadId?: string | number } | null {
+  const agentId = resolveAgentIdFromSessionKey(params.sessionKey);
+  const storePath = resolveStorePath(params.cfg.session?.store, { agentId });
+  const store = loadSessionStore(storePath);
+  const entry = store[params.sessionKey];
+  if (!entry) {
+    return null;
+  }
+  const target = resolveSessionDeliveryTarget({ entry, requestedChannel: "last" });
+  if (!target.channel || !target.to) {
+    return null;
+  }
+  if (!isDeliverableMessageChannel(target.channel)) {
+    return null;
+  }
+  return {
+    channel: target.channel,
+    to: target.to,
+    accountId: target.accountId,
+    threadId: target.threadId,
+  };
 }
 
 async function waitForSignalDaemonReady(params: {
@@ -306,6 +360,8 @@ export async function monitorSignalProvider(opts: MonitorSignalOpts = {}): Promi
   const mediaMaxBytes = (opts.mediaMaxMb ?? accountInfo.config.mediaMaxMb ?? 8) * 1024 * 1024;
   const ignoreAttachments = opts.ignoreAttachments ?? accountInfo.config.ignoreAttachments ?? false;
   const sendReadReceipts = Boolean(opts.sendReadReceipts ?? accountInfo.config.sendReadReceipts);
+  const notifyUntrustedIdentities =
+    opts.notifyUntrustedIdentities ?? accountInfo.config.notifyUntrustedIdentities ?? true;
 
   const autoStart = opts.autoStart ?? accountInfo.config.autoStart ?? !accountInfo.config.httpUrl;
   const startupTimeoutMs = Math.min(
@@ -313,7 +369,46 @@ export async function monitorSignalProvider(opts: MonitorSignalOpts = {}): Promi
     Math.max(1_000, opts.startupTimeoutMs ?? accountInfo.config.startupTimeoutMs ?? 30_000),
   );
   const readReceiptsViaDaemon = Boolean(autoStart && sendReadReceipts);
+  const untrustedIdentityCache = new Set<string>();
   let daemonHandle: ReturnType<typeof spawnSignalDaemon> | null = null;
+
+  const handleUntrustedIdentity = async (params: { identity: string; line: string }) => {
+    if (!notifyUntrustedIdentities) {
+      return;
+    }
+    const identity = params.identity.trim();
+    if (!identity || untrustedIdentityCache.has(identity)) {
+      return;
+    }
+    untrustedIdentityCache.add(identity);
+    const text = buildSignalUntrustedIdentityEventText(identity);
+    const sessionKey = resolveSignalUntrustedIdentitySessionKey({
+      cfg,
+      fallbackSessionKey: opts.sessionKey,
+    });
+    if (sessionKey) {
+      enqueueSystemEvent(text, { sessionKey });
+      const target = resolveSignalUntrustedIdentityTarget({ cfg, sessionKey });
+      if (target) {
+        await deliverOutboundPayloads({
+          cfg,
+          channel: target.channel as
+            | "telegram"
+            | "slack"
+            | "discord"
+            | "whatsapp"
+            | "signal"
+            | "imessage"
+            | "msteams",
+          to: target.to,
+          accountId: target.accountId,
+          threadId: target.threadId,
+          payloads: [{ text }],
+          bestEffort: true,
+        });
+      }
+    }
+  };
 
   if (autoStart) {
     const cliPath = opts.cliPath ?? accountInfo.config.cliPath ?? "signal-cli";
@@ -329,6 +424,7 @@ export async function monitorSignalProvider(opts: MonitorSignalOpts = {}): Promi
       ignoreStories: opts.ignoreStories ?? accountInfo.config.ignoreStories,
       sendReadReceipts,
       runtime,
+      onUntrustedIdentity: handleUntrustedIdentity,
     });
   }
 

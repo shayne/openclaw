@@ -1369,6 +1369,7 @@ Signal reactions can emit system events (shared reaction tooling):
     signal: {
       reactionNotifications: "own", // off | own | all | allowlist
       reactionAllowlist: ["+15551234567", "uuid:123e4567-e89b-12d3-a456-426614174000"],
+      notifyUntrustedIdentities: true, // notify on untrusted identity events
       historyLimit: 50, // include last N group messages as context (0 disables)
     },
   },
