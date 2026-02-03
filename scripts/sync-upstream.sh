@@ -38,7 +38,7 @@ touch "$LOG_FILE"
     script -q -c "$CODEX_CMD \"Resolve git rebase conflicts, complete the rebase, ensure working tree is clean, commit any needed fixes (message 'chore: sync with upstream'), and do not push.\"" /dev/null
   fi
 
-  # Force push to origin/main
+  # Force push to origin/main (after updating from upstream)
   git push -f origin main
   echo "sync complete"
 } >> "$LOG_FILE" 2>&1
