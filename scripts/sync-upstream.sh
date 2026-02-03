@@ -32,6 +32,8 @@ touch "$LOG_FILE"
     script -q -c "$CODEX_CMD \"Repo is dirty. Resolve any conflicts or issues, ensure working tree is clean, commit with message 'chore: sync with upstream', and do not push.\"" /dev/null
   fi
 
+  BEFORE_HEAD=$(git rev-parse HEAD)
+
   # Rebase onto upstream/main
   if ! git rebase upstream/main; then
     echo "Rebase failed; invoking Codex to resolve conflicts"
@@ -40,5 +42,16 @@ touch "$LOG_FILE"
 
   # Force push to origin/main (after updating from upstream)
   git push -f origin main
+
+  # If lockfile changed, install deps
+  if git diff --name-only "$BEFORE_HEAD" HEAD | grep -q '^pnpm-lock.yaml$'; then
+    echo "pnpm-lock.yaml changed; installing deps"
+    pnpm install
+  fi
+
+  # Restart gateway watch so changes take effect even if deps changed
+  echo "Restarting gateway watch"
+  sudo -n systemctl restart openclaw-gateway-watch.service || true
+
   echo "sync complete"
 } >> "$LOG_FILE" 2>&1
