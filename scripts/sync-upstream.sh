@@ -1,12 +1,15 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ubuntu/.local/bin${PATH:+:$PATH}"
+
 REPO_DIR="/home/ubuntu/openclaw"
-LOG_FILE="/var/log/openclaw-sync.log"
+LOG_FILE="/home/ubuntu/openclaw/logs/openclaw-sync.log"
 CODEX_CMD="pnpm dlx @openai/codex@latest exec --yolo"
 
 # Ensure log file exists
-sudo touch "$LOG_FILE" && sudo chown ubuntu:ubuntu "$LOG_FILE"
+mkdir -p "$(dirname "$LOG_FILE")"
+touch "$LOG_FILE"
 
 {
   echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] sync start"
