@@ -56,7 +56,10 @@ touch "$LOG_FILE"
   if [ "$BEFORE_HEAD" != "$AFTER_HEAD" ]; then
     {
       echo "Sync completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-      echo "Range: $BEFORE_HEAD..$AFTER_HEAD"
+      MERGE_BASE=$(git merge-base "$BEFORE_HEAD" upstream/main || true)
+      if [ -n "$MERGE_BASE" ]; then
+        echo "Upstream range: $MERGE_BASE..upstream/main"
+      fi
       UPSTREAM_CHANGES=$(git log "$BEFORE_HEAD"..upstream/main --pretty='%s | %an <%ae>' \
         | grep -vi 'shayne' \
         | head -n 20)
