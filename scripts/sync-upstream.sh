@@ -57,7 +57,7 @@ touch "$LOG_FILE"
     {
       echo "Sync completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
       echo "Range: $BEFORE_HEAD..$AFTER_HEAD"
-      UPSTREAM_CHANGES=$(git log "$BEFORE_HEAD".."$AFTER_HEAD" --pretty='%s' \
+      UPSTREAM_CHANGES=$(git log "$BEFORE_HEAD"..upstream/main --pretty='%s | %an <%ae>' \
         | grep -vi 'shayne' \
         | head -n 20)
       if [ -z "$UPSTREAM_CHANGES" ]; then
