@@ -57,13 +57,18 @@ touch "$LOG_FILE"
     {
       echo "Sync completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
       echo "Range: $BEFORE_HEAD..$AFTER_HEAD"
-      echo "Changes (upstream only):"
-      git log "$BEFORE_HEAD".."$AFTER_HEAD" --pretty='%h %s | %an <%ae>' \
+      UPSTREAM_CHANGES=$(git log "$BEFORE_HEAD".."$AFTER_HEAD" --pretty='%h %s | %an <%ae>' \
         | grep -vi 'shayne' \
-        | head -n 20
-      echo ""
-      echo "Files changed (top):"
-      git diff --stat "$BEFORE_HEAD".."$AFTER_HEAD" | head -n 20
+        | head -n 20)
+      if [ -z "$UPSTREAM_CHANGES" ]; then
+        echo "No upstream changes"
+      else
+        echo "Changes (upstream only):"
+        echo "$UPSTREAM_CHANGES"
+        echo ""
+        echo "Files changed (top):"
+        git diff --stat "$BEFORE_HEAD".."$AFTER_HEAD" | head -n 20
+      fi
     } > "$SUMMARY_FILE"
   else
     echo "No upstream changes" > "$SUMMARY_FILE"
