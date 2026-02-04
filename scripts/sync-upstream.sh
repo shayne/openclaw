@@ -43,10 +43,28 @@ touch "$LOG_FILE"
   # Force push to origin/main (after updating from upstream)
   git push -f origin main
 
+  AFTER_HEAD=$(git rev-parse HEAD)
+
   # If lockfile changed, install deps
   if git diff --name-only "$BEFORE_HEAD" HEAD | grep -q '^pnpm-lock.yaml$'; then
     echo "pnpm-lock.yaml changed; installing deps"
     pnpm install
+  fi
+
+  # Write summary file for notifier
+  SUMMARY_FILE="/home/ubuntu/openclaw/logs/openclaw-sync-summary.txt"
+  if [ "$BEFORE_HEAD" != "$AFTER_HEAD" ]; then
+    {
+      echo "Sync completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+      echo "Range: $BEFORE_HEAD..$AFTER_HEAD"
+      echo "Changes:"
+      git log --oneline "$BEFORE_HEAD".."$AFTER_HEAD" | head -n 20
+      echo ""
+      echo "Files changed (top):"
+      git diff --stat "$BEFORE_HEAD".."$AFTER_HEAD" | head -n 20
+    } > "$SUMMARY_FILE"
+  else
+    echo "No upstream changes" > "$SUMMARY_FILE"
   fi
 
   # Restart gateway watch so changes take effect even if deps changed
