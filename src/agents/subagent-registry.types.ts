@@ -1,7 +1,7 @@
 import type { DeliveryContext } from "../utils/delivery-context.js";
 import type { SubagentRunOutcome } from "./subagent-announce.js";
 import type { SubagentLifecycleEndedReason } from "./subagent-lifecycle-events.js";
-import type { SpawnSubagentMode } from "./subagent-spawn.js";
+import type { SpawnSubagentCompletionMode, SpawnSubagentMode } from "./subagent-spawn.js";
 
 export type SubagentRunRecord = {
   runId: string;
@@ -12,6 +12,7 @@ export type SubagentRunRecord = {
   requesterDisplayKey: string;
   task: string;
   cleanup: "delete" | "keep";
+  completionMode?: SpawnSubagentCompletionMode;
   label?: string;
   model?: string;
   workspaceDir?: string;

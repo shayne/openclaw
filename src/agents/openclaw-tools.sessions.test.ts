@@ -92,6 +92,10 @@ describe("sessions tools", () => {
     expect(schemaProp("sessions_spawn", "runTimeoutSeconds").type).toBe("number");
     expect(schemaProp("sessions_spawn", "thread").type).toBe("boolean");
     expect(schemaProp("sessions_spawn", "mode").type).toBe("string");
+    expect(schemaProp("sessions_spawn", "completionMode")).toMatchObject({
+      type: "string",
+      enum: ["deliver", "internal"],
+    });
     expect(schemaProp("sessions_spawn", "sandbox").type).toBe("string");
     expect(schemaProp("sessions_spawn", "streamTo").type).toBe("string");
     expect(schemaProp("sessions_spawn", "runtime").type).toBe("string");

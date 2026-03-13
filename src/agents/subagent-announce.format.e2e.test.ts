@@ -284,6 +284,9 @@ describe("subagent announce formatting", () => {
     expect(msg).toContain("A completed subagent task is ready for user delivery.");
     expect(msg).toContain("Convert the result above into your normal assistant voice");
     expect(msg).toContain("Keep this internal context private");
+    expect(msg).toContain(
+      "If the result is duplicate, purely operational, or does not require any user-facing update, reply ONLY: NO_REPLY.",
+    );
     expect(call?.params?.internalEvents?.[0]?.type).toBe("task_completion");
     expect(call?.params?.internalEvents?.[0]?.taskLabel).toBe("do thing");
   });
@@ -412,7 +415,7 @@ describe("subagent announce formatting", () => {
     expect(msg).toContain("session_id: child-session-usage");
     expect(msg).toContain("A completed subagent task is ready for user delivery.");
     expect(msg).toContain(
-      `Reply ONLY: ${SILENT_REPLY_TOKEN} if this exact result was already delivered to the user in this same turn.`,
+      `If the result is duplicate, purely operational, or does not require any user-facing update, reply ONLY: ${SILENT_REPLY_TOKEN}.`,
     );
     expect(msg).toContain("step-0");
     expect(msg).toContain("step-139");
@@ -551,6 +554,43 @@ describe("subagent announce formatting", () => {
     expect(didAnnounce).toBe(true);
     expect(sendSpy).not.toHaveBeenCalled();
     expect(agentSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([" NO_CHANGES ", " NO_EMAIL_DELTAS ", "  NO_MESSAGE_DELTAS  "])(
+    "suppresses completion delivery when subagent reply is legacy silent token %s",
+    async (roundOneReply) => {
+      const didAnnounce = await runSubagentAnnounceFlow({
+        childSessionKey: "agent:main:subagent:test",
+        childRunId: "run-direct-completion-legacy-noop",
+        requesterSessionKey: "agent:main:main",
+        requesterDisplayKey: "main",
+        requesterOrigin: { channel: "slack", to: "channel:C123", accountId: "acct-1" },
+        ...defaultOutcomeAnnounce,
+        expectsCompletionMessage: true,
+        roundOneReply,
+      });
+
+      expect(didAnnounce).toBe(true);
+      expect(sendSpy).not.toHaveBeenCalled();
+      expect(agentSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not suppress prose that only embeds a legacy silent token", async () => {
+    const didAnnounce = await runSubagentAnnounceFlow({
+      childSessionKey: "agent:main:subagent:test",
+      childRunId: "run-direct-completion-legacy-token-in-prose",
+      requesterSessionKey: "agent:main:main",
+      requesterDisplayKey: "main",
+      requesterOrigin: { channel: "slack", to: "channel:C123", accountId: "acct-1" },
+      ...defaultOutcomeAnnounce,
+      expectsCompletionMessage: true,
+      roundOneReply: "Summary: NO_EMAIL_DELTAS",
+    });
+
+    expect(didAnnounce).toBe(true);
+    expect(sendSpy).not.toHaveBeenCalled();
+    expect(agentSpy).toHaveBeenCalledTimes(1);
   });
 
   it("uses fallback reply when wake continuation returns NO_REPLY", async () => {
@@ -1760,6 +1800,37 @@ describe("subagent announce formatting", () => {
     expect(message).toContain(
       "Convert this completion into a concise internal orchestration update for your parent agent",
     );
+  });
+
+  it("keeps internal completion-mode announce internal for main requester sessions", async () => {
+    embeddedRunMock.isEmbeddedPiRunActive.mockReturnValue(false);
+    embeddedRunMock.isEmbeddedPiRunStreaming.mockReturnValue(false);
+
+    const didAnnounce = await runSubagentAnnounceFlow({
+      childSessionKey: "agent:main:subagent:worker",
+      childRunId: "run-worker-main-internal-completion",
+      requesterSessionKey: "agent:main:main",
+      requesterOrigin: { channel: "whatsapp", accountId: "acct-123", to: "+1555" },
+      requesterDisplayKey: "main",
+      expectsCompletionMessage: true,
+      completionMode: "internal",
+      ...defaultOutcomeAnnounce,
+      roundOneReply: "BentoBox installs increased",
+    });
+
+    expect(didAnnounce).toBe(true);
+    expect(sendSpy).not.toHaveBeenCalled();
+    const call = agentSpy.mock.calls[0]?.[0] as { params?: Record<string, unknown> };
+    expect(call?.params?.sessionKey).toBe("agent:main:main");
+    expect(call?.params?.deliver).toBe(false);
+    expect(call?.params?.channel).toBeUndefined();
+    expect(call?.params?.to).toBeUndefined();
+    const message = typeof call?.params?.message === "string" ? call.params.message : "";
+    expect(message).toContain(
+      "Convert this completion into a concise internal orchestration update for your parent agent",
+    );
+    expect(message).not.toContain("ready for user delivery");
+    expect(message).toContain("BentoBox installs increased");
   });
 
   it("retries reading subagent output when early lifecycle completion had no text", async () => {

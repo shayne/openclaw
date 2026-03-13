@@ -10,6 +10,7 @@ const hoisted = vi.hoisted(() => {
 });
 
 vi.mock("../subagent-spawn.js", () => ({
+  SUBAGENT_COMPLETION_MODES: ["deliver", "internal"],
   SUBAGENT_SPAWN_MODES: ["run", "session"],
   spawnSubagentDirect: (...args: unknown[]) => hoisted.spawnSubagentDirectMock(...args),
 }));
@@ -77,6 +78,73 @@ describe("sessions_spawn tool", () => {
       }),
     );
     expect(hoisted.spawnAcpDirectMock).not.toHaveBeenCalled();
+  });
+
+  it("supports internal completion mode for subagent spawns", async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    const result = await tool.execute("call-internal", {
+      task: "scan inbox deltas",
+      runtime: "subagent",
+      completionMode: "internal",
+    });
+
+    expect(result.details).toMatchObject({
+      status: "accepted",
+      childSessionKey: "agent:main:subagent:1",
+      runId: "run-subagent",
+    });
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: "scan inbox deltas",
+        completionMode: "internal",
+        expectsCompletionMessage: true,
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("keeps deliver mode on the normal completion-delivery path", async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    await tool.execute("call-deliver", {
+      task: "scan inbox deltas",
+      runtime: "subagent",
+      completionMode: "deliver",
+    });
+
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: "scan inbox deltas",
+        completionMode: "deliver",
+        expectsCompletionMessage: true,
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("defaults to deliver mode when completionMode is omitted", async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    await tool.execute("call-default", {
+      task: "scan inbox deltas",
+      runtime: "subagent",
+    });
+
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: "scan inbox deltas",
+        completionMode: undefined,
+        expectsCompletionMessage: true,
+      }),
+      expect.any(Object),
+    );
   });
 
   it("passes inherited workspaceDir from tool context, not from tool args", async () => {
@@ -196,6 +264,46 @@ describe("sessions_spawn tool", () => {
     });
 
     expect(JSON.stringify(result)).toContain("resumeSessionId is only supported for runtime=acp");
+    expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
+    expect(hoisted.spawnAcpDirectMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects completionMode for ACP runtime", async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    const result = await tool.execute("call-completion-mode-acp", {
+      task: "scan inbox deltas",
+      runtime: "acp",
+      completionMode: "internal",
+    });
+
+    expect(result.details).toMatchObject({
+      status: "error",
+    });
+    const details = result.details as { error?: string };
+    expect(details.error).toContain("completionMode is only supported for runtime=subagent");
+    expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
+    expect(hoisted.spawnAcpDirectMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid completionMode values", async () => {
+    const tool = createSessionsSpawnTool({
+      agentSessionKey: "agent:main:main",
+    });
+
+    const result = await tool.execute("call-completion-mode-invalid", {
+      task: "scan inbox deltas",
+      runtime: "subagent",
+      completionMode: "quiet",
+    });
+
+    expect(result.details).toMatchObject({
+      status: "error",
+    });
+    const details = result.details as { error?: string };
+    expect(details.error).toContain("invalid completionMode");
     expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
     expect(hoisted.spawnAcpDirectMock).not.toHaveBeenCalled();
   });
