@@ -220,6 +220,37 @@ describe("agent event handler", () => {
     nowSpy?.mockRestore();
   });
 
+  it("keeps commentary-only deltas out of chat when the final answer is NO_REPLY", () => {
+    const { broadcast, nodeSendToSession, chatRunState, handler, nowSpy } = createHarness({
+      now: 2_050,
+    });
+    chatRunState.registry.add("run-commentary-no-reply", {
+      sessionKey: "session-commentary-no-reply",
+      clientRunId: "client-commentary-no-reply",
+    });
+
+    handler({
+      runId: "run-commentary-no-reply",
+      seq: 1,
+      stream: "assistant",
+      ts: Date.now(),
+      data: { text: "Quick delta pass again", phase: "commentary" },
+    });
+    handler({
+      runId: "run-commentary-no-reply",
+      seq: 2,
+      stream: "assistant",
+      ts: Date.now(),
+      data: { text: "NO_REPLY", phase: "final_answer" },
+    });
+    emitLifecycleEnd(handler, "run-commentary-no-reply", 3);
+
+    const payload = expectSingleFinalChatPayload(broadcast) as { message?: unknown };
+    expect(payload.message).toBeUndefined();
+    expect(sessionChatCalls(nodeSendToSession)).toHaveLength(1);
+    nowSpy?.mockRestore();
+  });
+
   it("suppresses NO_REPLY lead fragments and does not leak NO in final chat message", () => {
     const { broadcast, nodeSendToSession, chatRunState, handler, nowSpy } = createHarness({
       now: 2_100,
