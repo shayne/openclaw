@@ -41,6 +41,8 @@ export const SUBAGENT_SPAWN_MODES = ["run", "session"] as const;
 export type SpawnSubagentMode = (typeof SUBAGENT_SPAWN_MODES)[number];
 export const SUBAGENT_SPAWN_SANDBOX_MODES = ["inherit", "require"] as const;
 export type SpawnSubagentSandboxMode = (typeof SUBAGENT_SPAWN_SANDBOX_MODES)[number];
+export const SUBAGENT_COMPLETION_MODES = ["deliver", "internal"] as const;
+export type SpawnSubagentCompletionMode = (typeof SUBAGENT_COMPLETION_MODES)[number];
 
 export { decodeStrictBase64 };
 
@@ -53,6 +55,7 @@ export type SpawnSubagentParams = {
   runTimeoutSeconds?: number;
   thread?: boolean;
   mode?: SpawnSubagentMode;
+  completionMode?: SpawnSubagentCompletionMode;
   cleanup?: "delete" | "keep";
   sandbox?: SpawnSubagentSandboxMode;
   expectsCompletionMessage?: boolean;
@@ -293,6 +296,7 @@ export async function spawnSubagentDirect(
         ? params.cleanup
         : "keep";
   const expectsCompletionMessage = params.expectsCompletionMessage !== false;
+  const completionMode = params.completionMode === "internal" ? "internal" : "deliver";
   const requesterOrigin = normalizeDeliveryContext({
     channel: ctx.agentChannel,
     accountId: ctx.agentAccountId,
@@ -699,6 +703,7 @@ export async function spawnSubagentDirect(
       requesterDisplayKey,
       task,
       cleanup,
+      completionMode,
       label: label || undefined,
       model: resolvedModel,
       workspaceDir: spawnedMetadata.workspaceDir,

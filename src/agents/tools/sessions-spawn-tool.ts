@@ -3,7 +3,11 @@ import type { GatewayMessageChannel } from "../../utils/message-channel.js";
 import { ACP_SPAWN_MODES, ACP_SPAWN_STREAM_TARGETS, spawnAcpDirect } from "../acp-spawn.js";
 import { optionalStringEnum } from "../schema/typebox.js";
 import type { SpawnedToolContext } from "../spawned-context.js";
-import { SUBAGENT_SPAWN_MODES, spawnSubagentDirect } from "../subagent-spawn.js";
+import {
+  SUBAGENT_COMPLETION_MODES,
+  SUBAGENT_SPAWN_MODES,
+  spawnSubagentDirect,
+} from "../subagent-spawn.js";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readStringParam, ToolInputError } from "./common.js";
 
@@ -39,6 +43,7 @@ const SessionsSpawnToolSchema = Type.Object({
   timeoutSeconds: Type.Optional(Type.Number({ minimum: 0 })),
   thread: Type.Optional(Type.Boolean()),
   mode: optionalStringEnum(SUBAGENT_SPAWN_MODES),
+  completionMode: optionalStringEnum(SUBAGENT_COMPLETION_MODES),
   cleanup: optionalStringEnum(["delete", "keep"] as const),
   sandbox: optionalStringEnum(SESSIONS_SPAWN_SANDBOX_MODES),
   streamTo: optionalStringEnum(ACP_SPAWN_STREAM_TARGETS),
@@ -102,6 +107,11 @@ export function createSessionsSpawnTool(
       const thinkingOverrideRaw = readStringParam(params, "thinking");
       const cwd = readStringParam(params, "cwd");
       const mode = params.mode === "run" || params.mode === "session" ? params.mode : undefined;
+      const completionModeRaw = readStringParam(params, "completionMode");
+      const completionMode =
+        completionModeRaw === "deliver" || completionModeRaw === "internal"
+          ? completionModeRaw
+          : undefined;
       const cleanup =
         params.cleanup === "keep" || params.cleanup === "delete" ? params.cleanup : "keep";
       const sandbox = params.sandbox === "require" ? "require" : "inherit";
@@ -138,6 +148,20 @@ export function createSessionsSpawnTool(
         return jsonResult({
           status: "error",
           error: `resumeSessionId is only supported for runtime=acp; got runtime=${runtime}`,
+        });
+      }
+
+      if (Object.hasOwn(params, "completionMode") && completionMode === undefined) {
+        return jsonResult({
+          status: "error",
+          error: `invalid completionMode: ${String(params.completionMode)}`,
+        });
+      }
+
+      if (completionMode && runtime !== "subagent") {
+        return jsonResult({
+          status: "error",
+          error: `completionMode is only supported for runtime=subagent; got runtime=${runtime}`,
         });
       }
 
@@ -183,6 +207,7 @@ export function createSessionsSpawnTool(
           runTimeoutSeconds,
           thread,
           mode,
+          completionMode,
           cleanup,
           sandbox,
           expectsCompletionMessage: true,

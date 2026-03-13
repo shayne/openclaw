@@ -543,6 +543,7 @@ function startSubagentAnnounceCleanupFlow(runId: string, entry: SubagentRunRecor
     task: entry.task,
     timeoutMs: SUBAGENT_ANNOUNCE_TIMEOUT_MS,
     cleanup: entry.cleanup,
+    completionMode: entry.completionMode,
     roundOneReply: entry.frozenResultText ?? undefined,
     fallbackReply: entry.fallbackFrozenResultText ?? undefined,
     waitForCompletion: false,
@@ -1153,6 +1154,7 @@ export function registerSubagentRun(params: {
   requesterDisplayKey: string;
   task: string;
   cleanup: "delete" | "keep";
+  completionMode?: "deliver" | "internal";
   label?: string;
   model?: string;
   workspaceDir?: string;
@@ -1181,6 +1183,7 @@ export function registerSubagentRun(params: {
     requesterDisplayKey: params.requesterDisplayKey,
     task: params.task,
     cleanup: params.cleanup,
+    completionMode: params.completionMode,
     expectsCompletionMessage: params.expectsCompletionMessage,
     spawnMode,
     label: params.label,
