@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveSilentReplyFallbackText } from "./pi-embedded-subscribe.handlers.messages.js";
+import {
+  resolveAssistantMessagePhase,
+  resolveSilentReplyFallbackText,
+} from "./pi-embedded-subscribe.handlers.messages.js";
 
 describe("resolveSilentReplyFallbackText", () => {
   it("replaces NO_REPLY with latest messaging tool text when available", () => {
@@ -27,5 +30,46 @@ describe("resolveSilentReplyFallbackText", () => {
         messagingToolSentTexts: [],
       }),
     ).toBe("NO_REPLY");
+  });
+});
+
+describe("resolveAssistantMessagePhase", () => {
+  it("reads commentary phase from assistant textSignature metadata", () => {
+    expect(
+      resolveAssistantMessagePhase({
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Working on it",
+            textSignature: JSON.stringify({
+              v: 1,
+              id: "msg_commentary",
+              phase: "commentary",
+            }),
+          },
+        ],
+      } as never),
+    ).toBe("commentary");
+  });
+
+  it("prefers explicit assistant phase when present", () => {
+    expect(
+      resolveAssistantMessagePhase({
+        role: "assistant",
+        phase: "final_answer",
+        content: [
+          {
+            type: "text",
+            text: "Done",
+            textSignature: JSON.stringify({
+              v: 1,
+              id: "msg_commentary",
+              phase: "commentary",
+            }),
+          },
+        ],
+      } as never),
+    ).toBe("final_answer");
   });
 });

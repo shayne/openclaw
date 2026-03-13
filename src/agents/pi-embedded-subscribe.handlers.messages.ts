@@ -18,6 +18,48 @@ import {
   promoteThinkingTagsToBlocks,
 } from "./pi-embedded-utils.js";
 
+type AssistantPhase = "commentary" | "final_answer";
+
+function normalizeAssistantPhase(value: unknown): AssistantPhase | undefined {
+  return value === "commentary" || value === "final_answer" ? value : undefined;
+}
+
+function resolveAssistantPhaseFromContentBlock(block: unknown): AssistantPhase | undefined {
+  if (!block || typeof block !== "object") {
+    return undefined;
+  }
+  const signature =
+    typeof (block as { textSignature?: unknown }).textSignature === "string"
+      ? (block as { textSignature: string }).textSignature
+      : undefined;
+  if (!signature) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(signature) as { phase?: unknown };
+    return normalizeAssistantPhase(parsed.phase);
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolveAssistantMessagePhase(message: AgentMessage): AssistantPhase | undefined {
+  const explicitPhase = normalizeAssistantPhase((message as { phase?: unknown }).phase);
+  if (explicitPhase) {
+    return explicitPhase;
+  }
+  const content = Array.isArray((message as { content?: unknown }).content)
+    ? (message as { content: unknown[] }).content
+    : [];
+  for (const block of content) {
+    const phase = resolveAssistantPhaseFromContentBlock(block);
+    if (phase) {
+      return phase;
+    }
+  }
+  return undefined;
+}
+
 const stripTrailingDirective = (text: string): string => {
   const openIndex = text.lastIndexOf("[[");
   if (openIndex < 0) {
@@ -85,6 +127,7 @@ export function handleMessageUpdate(
   }
 
   ctx.noteLastAssistant(msg);
+  const assistantPhase = resolveAssistantMessagePhase(msg);
   if (ctx.state.deterministicApprovalPromptSent) {
     return;
   }
@@ -223,6 +266,7 @@ export function handleMessageUpdate(
           text: cleanedText,
           delta: deltaText,
           mediaUrls: hasMedia ? mediaUrls : undefined,
+          ...(assistantPhase ? { phase: assistantPhase } : {}),
         },
       });
       void ctx.params.onAgentEvent?.({
@@ -231,6 +275,7 @@ export function handleMessageUpdate(
           text: cleanedText,
           delta: deltaText,
           mediaUrls: hasMedia ? mediaUrls : undefined,
+          ...(assistantPhase ? { phase: assistantPhase } : {}),
         },
       });
       ctx.state.emittedAssistantUpdate = true;
@@ -263,6 +308,7 @@ export function handleMessageEnd(
 
   const assistantMessage = msg;
   ctx.noteLastAssistant(assistantMessage);
+  const assistantPhase = resolveAssistantMessagePhase(assistantMessage);
   ctx.recordAssistantUsage((assistantMessage as { usage?: unknown }).usage);
   if (ctx.state.deterministicApprovalPromptSent) {
     return;
@@ -314,6 +360,7 @@ export function handleMessageEnd(
         text: cleanedText,
         delta: cleanedText,
         mediaUrls: hasMedia ? mediaUrls : undefined,
+        ...(assistantPhase ? { phase: assistantPhase } : {}),
       },
     });
     void ctx.params.onAgentEvent?.({
@@ -322,6 +369,7 @@ export function handleMessageEnd(
         text: cleanedText,
         delta: cleanedText,
         mediaUrls: hasMedia ? mediaUrls : undefined,
+        ...(assistantPhase ? { phase: assistantPhase } : {}),
       },
     });
     ctx.state.emittedAssistantUpdate = true;

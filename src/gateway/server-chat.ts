@@ -89,6 +89,10 @@ function isSilentReplyLeadFragment(text: string): boolean {
   return SILENT_REPLY_TOKEN.startsWith(normalized);
 }
 
+function isCommentaryAssistantPhase(phase: unknown): boolean {
+  return typeof phase === "string" && phase.trim() === "commentary";
+}
+
 function appendUniqueSuffix(base: string, suffix: string): string {
   if (!suffix) {
     return base;
@@ -596,7 +600,12 @@ export function createAgentEventHandler({
       if (!isToolEvent || toolVerbose !== "off") {
         nodeSendToSession(sessionKey, "agent", isToolEvent ? toolPayload : agentPayload);
       }
-      if (!isAborted && evt.stream === "assistant" && typeof evt.data?.text === "string") {
+      if (
+        !isAborted &&
+        evt.stream === "assistant" &&
+        typeof evt.data?.text === "string" &&
+        !isCommentaryAssistantPhase(evt.data?.phase)
+      ) {
         emitChatDelta(sessionKey, clientRunId, evt.runId, evt.seq, evt.data.text, evt.data.delta);
       } else if (!isAborted && (lifecyclePhase === "end" || lifecyclePhase === "error")) {
         const evtStopReason =
