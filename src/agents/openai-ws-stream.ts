@@ -833,6 +833,7 @@ export function createOpenAIWebSocketStreamFn(
 
       // ── 5. Wait for response.completed ───────────────────────────────────
       const capturedContextLength = context.messages.length;
+      const itemPhases = new Map<string, OpenAIResponsesAssistantPhase>();
 
       await new Promise<void>((resolve, reject) => {
         // Honour abort signal
@@ -883,18 +884,31 @@ export function createOpenAIWebSocketStreamFn(
           } else if (event.type === "error") {
             cleanup();
             reject(new Error(`OpenAI WebSocket error: ${event.message} (code=${event.code})`));
+          } else if (
+            (event.type === "response.output_item.added" ||
+              event.type === "response.output_item.done") &&
+            event.item.type === "message"
+          ) {
+            const itemPhase = normalizeAssistantPhase(event.item.phase);
+            if (itemPhase) {
+              itemPhases.set(event.item.id, itemPhase);
+            }
           } else if (event.type === "response.output_text.delta") {
             // Stream partial text updates for responsive UI
-            const partialMsg: AssistantMessage = buildAssistantMessageWithZeroUsage({
+            const itemPhase = itemPhases.get(event.item_id);
+            const partialMsg = buildAssistantMessageWithZeroUsage({
               model,
               content: [{ type: "text", text: event.delta }],
               stopReason: "stop",
             });
+            const partialWithPhase = itemPhase
+              ? ({ ...partialMsg, phase: itemPhase } as AssistantMessageWithPhase)
+              : partialMsg;
             eventStream.push({
               type: "text_delta",
               contentIndex: 0,
               delta: event.delta,
-              partial: partialMsg,
+              partial: partialWithPhase,
             });
           }
         });

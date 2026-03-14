@@ -37,6 +37,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
   const useMarkdown = toolResultFormat === "markdown";
   const state: EmbeddedPiSubscribeState = {
     assistantTexts: [],
+    currentAssistantPhase: undefined,
     toolMetas: [],
     toolMetaById: new Map(),
     toolSummaryById: new Set(),
@@ -115,6 +116,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
   };
 
   const resetAssistantMessageState = (nextAssistantTextBaseline: number) => {
+    state.currentAssistantPhase = undefined;
     state.deltaBuffer = "";
     state.blockBuffer = "";
     blockChunker?.reset();
@@ -483,6 +485,9 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     // Also strip downgraded tool call text ([Tool Call: ...], [Historical context: ...], etc.).
     const chunk = stripDowngradedToolCallText(stripBlockTags(text, state.blockState)).trimEnd();
     if (!chunk) {
+      return;
+    }
+    if (state.currentAssistantPhase === "commentary") {
       return;
     }
     if (chunk === state.lastBlockReplyText) {

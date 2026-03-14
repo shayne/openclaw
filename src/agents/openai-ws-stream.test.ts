@@ -736,6 +736,7 @@ describe("createOpenAIWebSocketStreamFn", () => {
     releaseWsSession("sess-incremental");
     releaseWsSession("sess-full");
     releaseWsSession("sess-phase");
+    releaseWsSession("sess-phase-delta");
     releaseWsSession("sess-tools");
     releaseWsSession("sess-store-default");
     releaseWsSession("sess-store-compat");
@@ -930,6 +931,59 @@ describe("createOpenAIWebSocketStreamFn", () => {
       | undefined;
     expect(doneEvent?.message.phase).toBe("commentary");
     expect(doneEvent?.message.stopReason).toBe("toolUse");
+  });
+
+  it("keeps assistant phase on streamed commentary text deltas", async () => {
+    const streamFn = createOpenAIWebSocketStreamFn("sk-test", "sess-phase-delta");
+    const stream = streamFn(
+      modelStub as Parameters<typeof streamFn>[0],
+      contextStub as Parameters<typeof streamFn>[1],
+    );
+
+    const events: unknown[] = [];
+    const done = (async () => {
+      for await (const ev of await resolveStream(stream)) {
+        events.push(ev);
+      }
+    })();
+
+    await new Promise((r) => setImmediate(r));
+    const manager = MockManager.lastInstance!;
+    manager.simulateEvent({
+      type: "response.output_item.added",
+      output_index: 0,
+      item: {
+        type: "message",
+        id: "item_commentary",
+        role: "assistant",
+        content: [],
+        phase: "commentary",
+        status: "in_progress",
+      },
+    });
+    manager.simulateEvent({
+      type: "response.output_text.delta",
+      item_id: "item_commentary",
+      output_index: 0,
+      content_index: 0,
+      delta: "Working...",
+    });
+    manager.simulateEvent({
+      type: "response.completed",
+      response: makeResponseObject("resp_phase_delta", "Working...", "exec", "commentary"),
+    });
+
+    await done;
+
+    const deltaEvent = events.find((e) => (e as { type?: string }).type === "text_delta") as
+      | {
+          type: string;
+          delta: string;
+          partial: { phase?: string; content: Array<{ text?: string }> };
+        }
+      | undefined;
+    expect(deltaEvent?.delta).toBe("Working...");
+    expect(deltaEvent?.partial.phase).toBe("commentary");
   });
 
   it("falls back to HTTP when WebSocket connect fails (session pre-broken via flag)", async () => {

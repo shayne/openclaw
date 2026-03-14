@@ -24,6 +24,10 @@ function normalizeAssistantPhase(value: unknown): AssistantPhase | undefined {
   return value === "commentary" || value === "final_answer" ? value : undefined;
 }
 
+function isCommentaryAssistantPhase(phase: AssistantPhase | undefined): boolean {
+  return phase === "commentary";
+}
+
 function resolveAssistantPhaseFromContentBlock(block: unknown): AssistantPhase | undefined {
   if (!block || typeof block !== "object") {
     return undefined;
@@ -113,6 +117,7 @@ export function handleMessageStart(
   // may deliver late text_end updates after message_end, which would otherwise
   // re-trigger block replies.
   ctx.resetAssistantMessageState(ctx.state.assistantTexts.length);
+  ctx.state.currentAssistantPhase = resolveAssistantMessagePhase(msg);
   // Use assistant message_start as the earliest "writing" signal for typing.
   void ctx.params.onAssistantMessageStart?.();
 }
@@ -131,6 +136,7 @@ export function handleMessageUpdate(
   if (ctx.state.deterministicApprovalPromptSent) {
     return;
   }
+  ctx.state.currentAssistantPhase = assistantPhase ?? ctx.state.currentAssistantPhase;
 
   const assistantEvent = evt.assistantMessageEvent;
   const assistantRecord =
@@ -279,7 +285,11 @@ export function handleMessageUpdate(
         },
       });
       ctx.state.emittedAssistantUpdate = true;
-      if (ctx.params.onPartialReply && ctx.state.shouldEmitPartialReplies) {
+      if (
+        ctx.params.onPartialReply &&
+        ctx.state.shouldEmitPartialReplies &&
+        !isCommentaryAssistantPhase(assistantPhase ?? ctx.state.currentAssistantPhase)
+      ) {
         void ctx.params.onPartialReply({
           text: cleanedText,
           mediaUrls: hasMedia ? mediaUrls : undefined,
@@ -309,6 +319,7 @@ export function handleMessageEnd(
   const assistantMessage = msg;
   ctx.noteLastAssistant(assistantMessage);
   const assistantPhase = resolveAssistantMessagePhase(assistantMessage);
+  ctx.state.currentAssistantPhase = assistantPhase ?? ctx.state.currentAssistantPhase;
   ctx.recordAssistantUsage((assistantMessage as { usage?: unknown }).usage);
   if (ctx.state.deterministicApprovalPromptSent) {
     return;
@@ -375,9 +386,16 @@ export function handleMessageEnd(
     ctx.state.emittedAssistantUpdate = true;
   }
 
+  const shouldEmitUserFacingReply = !isCommentaryAssistantPhase(
+    assistantPhase ?? ctx.state.currentAssistantPhase,
+  );
   const addedDuringMessage = ctx.state.assistantTexts.length > ctx.state.assistantTextBaseline;
   const chunkerHasBuffered = ctx.blockChunker?.hasBuffered() ?? false;
-  ctx.finalizeAssistantTexts({ text, addedDuringMessage, chunkerHasBuffered });
+  ctx.finalizeAssistantTexts({
+    text: shouldEmitUserFacingReply ? text : "",
+    addedDuringMessage,
+    chunkerHasBuffered,
+  });
 
   const onBlockReply = ctx.params.onBlockReply;
   const emitBlockReplySafely = (payload: Parameters<NonNullable<typeof onBlockReply>>[0]) => {
@@ -391,6 +409,7 @@ export function handleMessageEnd(
       });
   };
   const shouldEmitReasoning = Boolean(
+    shouldEmitUserFacingReply &&
     ctx.state.includeReasoning &&
     formattedReasoning &&
     onBlockReply &&
@@ -438,6 +457,7 @@ export function handleMessageEnd(
   };
 
   if (
+    shouldEmitUserFacingReply &&
     (ctx.state.blockReplyBreak === "message_end" ||
       (ctx.blockChunker ? ctx.blockChunker.hasBuffered() : ctx.state.blockBuffer.length > 0)) &&
     text &&
@@ -472,7 +492,7 @@ export function handleMessageEnd(
     ctx.emitReasoningStream(rawThinking);
   }
 
-  if (ctx.state.blockReplyBreak === "text_end" && onBlockReply) {
+  if (shouldEmitUserFacingReply && ctx.state.blockReplyBreak === "text_end" && onBlockReply) {
     emitSplitResultAsBlockReply(ctx.consumeReplyDirectives("", { final: true }));
   }
 

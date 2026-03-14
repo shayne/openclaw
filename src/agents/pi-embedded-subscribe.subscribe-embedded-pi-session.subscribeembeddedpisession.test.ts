@@ -2,6 +2,7 @@ import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 import {
   THINKING_TAG_CASES,
+  createSubscribedSessionHarness,
   createStubSessionHarness,
   emitAssistantLifecycleErrorAndEnd,
   emitMessageStartAndEndForAssistantText,
@@ -106,7 +107,7 @@ describe("subscribeEmbeddedPiSession", () => {
 
   it.each(THINKING_TAG_CASES)(
     "streams <%s> reasoning via onReasoningStream without leaking into final text",
-    ({ open, close }) => {
+    async ({ open, close }) => {
       const onReasoningStream = vi.fn();
       const onBlockReply = vi.fn();
 
@@ -132,6 +133,8 @@ describe("subscribeEmbeddedPiSession", () => {
       } as AssistantMessage;
 
       emit({ type: "message_end", message: assistantMessage });
+      await Promise.resolve();
+      await Promise.resolve();
 
       expect(onBlockReply).toHaveBeenCalledTimes(1);
       expect(onBlockReply.mock.calls[0][0].text).toBe("Final answer");
@@ -149,7 +152,7 @@ describe("subscribeEmbeddedPiSession", () => {
   );
   it.each(THINKING_TAG_CASES)(
     "suppresses <%s> blocks across chunk boundaries",
-    ({ open, close }) => {
+    async ({ open, close }) => {
       const onBlockReply = vi.fn();
 
       const { emit } = createSubscribedHarness({
@@ -174,6 +177,8 @@ describe("subscribeEmbeddedPiSession", () => {
         message: { role: "assistant" },
         assistantMessageEvent: { type: "text_end" },
       });
+      await Promise.resolve();
+      await Promise.resolve();
 
       const payloadTexts = onBlockReply.mock.calls
         .map((call) => call[0]?.text)
@@ -277,6 +282,59 @@ describe("subscribeEmbeddedPiSession", () => {
     expect(payloads[0]?.delta).toBe("Hello");
     expect(payloads[1]?.text).toBe("Hello world");
     expect(payloads[1]?.delta).toBe(" world");
+  });
+
+  it("does not emit commentary partial or block replies before tool execution", () => {
+    const onPartialReply = vi.fn();
+    const onBlockReply = vi.fn();
+    const { emit, subscription } = createSubscribedSessionHarness({
+      runId: "run",
+      onPartialReply,
+      onBlockReply,
+      blockReplyBreak: "text_end",
+    });
+
+    const commentaryMessage = {
+      role: "assistant",
+      phase: "commentary",
+      content: [{ type: "text", text: "Quick delta pass again." }],
+    } as AssistantMessage;
+
+    emit({ type: "message_start", message: commentaryMessage });
+    emit({
+      type: "message_update",
+      message: commentaryMessage,
+      assistantMessageEvent: { type: "text_delta", delta: "Quick delta pass again." },
+    });
+
+    expect(onPartialReply).not.toHaveBeenCalled();
+
+    emit({
+      type: "tool_execution_start",
+      toolName: "exec",
+      toolCallId: "tool-1",
+      args: { command: "tg inbox --json" },
+    });
+
+    expect(onBlockReply).not.toHaveBeenCalled();
+    expect(subscription.assistantTexts).toEqual([]);
+  });
+
+  it("keeps commentary-only assistant messages out of assistantTexts", () => {
+    const { emit, subscription } = createSubscribedSessionHarness({
+      runId: "run",
+    });
+
+    const commentaryMessage = {
+      role: "assistant",
+      phase: "commentary",
+      content: [{ type: "text", text: "Quick delta pass again." }],
+    } as AssistantMessage;
+
+    emit({ type: "message_start", message: commentaryMessage });
+    emit({ type: "message_end", message: commentaryMessage });
+
+    expect(subscription.assistantTexts).toEqual([]);
   });
 
   it("emits agent events on message_end for non-streaming assistant text", () => {
